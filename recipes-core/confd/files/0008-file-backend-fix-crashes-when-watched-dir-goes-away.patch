@@ -1,0 +1,49 @@
+From 0ccb9f71543f09319702567b2f0f9ea69eb25a19 Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Mon, 29 Feb 2016 23:42:43 +0200
+Subject: [PATCH 08/10] file backend: fix crashes when watched dir goes away
+
+---
+ backends/file/client.go | 24 +++++++++++++-----------
+ 1 file changed, 13 insertions(+), 11 deletions(-)
+
+diff --git a/backends/file/client.go b/backends/file/client.go
+index 6f467ff..9b33539 100644
+--- a/backends/file/client.go
++++ b/backends/file/client.go
+@@ -87,19 +87,21 @@ func (me *Client) addWatches(dir string) error {
+ func (me *Client) removeWatches(dir string) error {
+ 	log.Info("stop watching '%s' directory", dir)
+ 	
+-	if err := me.watcher.RemoveWatch(dir); err != nil {
+-		return err
+-	}
++	if i, err := os.Stat(dir); err == nil && i.IsDir() {
++		if err := me.watcher.RemoveWatch(dir); err != nil {
++			return err
++		}
+ 	
+-	infos, err := ioutil.ReadDir(dir)
+-	if err != nil {
+-		return err
+-	}
++		infos, err := ioutil.ReadDir(dir)
++		if err != nil {
++			return err
++		}
+ 	
+-	for _, i := range infos {
+-		if i.IsDir() {
+-			if err := me.removeWatches(dir + "/" + i.Name()); err != nil {
+-				return err
++		for _, i := range infos {
++			if i.IsDir() {
++				if err := me.removeWatches(dir + "/" + i.Name()); err != nil {
++					return err
++				}
+ 			}
+ 		}
+ 	}
+-- 
+2.5.0
+

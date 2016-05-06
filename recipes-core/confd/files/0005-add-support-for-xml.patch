@@ -1,0 +1,288 @@
+From 1281b1e1229416171eda58a90f2c3e9f0cf6b09c Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Tue, 19 Jan 2016 19:41:23 +0200
+Subject: [PATCH 05/10] add support for xml
+
+Similar to JSON two template function added 'xml' and 'xmlArray'
+to parse xml content. After that there should be no difference
+compared to JSON eg. if /path/to/key/that/contains/xml is
+	<MyObject>
+		<MyField1>Hello</MyField1>
+		<MyField2>world</MyField2>
+	</MyObject>
+the template
+	...
+	{{$xmlobj := xml (getv "/path/to/key/that/contains/xml")}}
+	Field1 = {{$xmlobj.MyObject.MyField1}}
+	Field2 = {{$xmlobj.MyObject.MyField2}}
+	...
+will produce the output
+	...
+	Field1 = Hello
+	Field2 = world
+
+XML specialities:
+	- the values of multiple occurances of the same tag on the same
+	  level will be merged into an array.
+		<MyTag>foo</MyTag>
+		<MyTag>bar</MyTag>
+	  will produce a single field 'MyTag'. 'MyTag' is an array of
+	  'foo' and 'bar'
+	- attribute names are added to the object eg.
+		<MyTag foo="bar">bozo</MyTag>
+	  will produce two object fields MyTag and MyTagFoo with the
+	  values 'bozo' and 'bar' respectively
+---
+ resource/template/template_funcs.go |   2 +
+ resource/template/xml.go            | 226 ++++++++++++++++++++++++++++++++++++
+ 2 files changed, 228 insertions(+)
+ create mode 100644 resource/template/xml.go
+
+diff --git a/resource/template/template_funcs.go b/resource/template/template_funcs.go
+index f0cdfca..571dbea 100644
+--- a/resource/template/template_funcs.go
++++ b/resource/template/template_funcs.go
+@@ -17,6 +17,8 @@ func newFuncMap() map[string]interface{} {
+ 	m["split"] = strings.Split
+ 	m["json"] = UnmarshalJsonObject
+ 	m["jsonArray"] = UnmarshalJsonArray
++	m["xml"] = UnmarshalXmlObject
++	m["xmlArray"] = UnmarshalXmlArray
+ 	m["dir"] = path.Dir
+ 	m["getenv"] = os.Getenv
+ 	m["join"] = strings.Join
+diff --git a/resource/template/xml.go b/resource/template/xml.go
+new file mode 100644
+index 0000000..212ca5b
+--- /dev/null
++++ b/resource/template/xml.go
+@@ -0,0 +1,226 @@
++package template
++
++import (
++	"fmt"
++	"io"
++	"reflect"
++	"strings"
++	"bytes"
++	"encoding/xml"
++)
++
++type xmlReader struct {
++	offset int
++	content []byte
++}
++
++func newXmlReader(content string) *xmlReader {
++	trimmed := []byte(strings.Trim(content, " \t\n") + "\n")
++	return &xmlReader{0, trimmed}
++}
++
++func (me *xmlReader) Read(p []byte) (int, error) {
++	lgh := len(me.content) - me.offset
++
++	if lgh <= 0 {
++		return 0, io.EOF
++	}
++
++	if lgh > len(p) {
++		return 0, io.ErrShortBuffer
++	}
++	
++	for i:= 0;  i < lgh;  i++ {
++		p[i] = me.content[me.offset + i]
++	}
++	me.offset += lgh
++	
++	return lgh, nil
++}
++
++
++func getTokenName(token xml.Token) string {
++	name := []byte(reflect.ValueOf(token).FieldByName("Name").FieldByName("Local").String())
++	dup := make([]byte, len(name))
++	copy(dup, name)
++	return string(dup)
++}
++
++func getTokenAttributes(token xml.Token) []xml.Attr {
++	return reflect.ValueOf(token).FieldByName("Attr").Interface().([]xml.Attr)
++}
++
++func getAttributeName(attr xml.Attr) string {
++	name := reflect.ValueOf(attr).FieldByName("Name").FieldByName("Local").String()
++	return strings.Title(name)
++}
++
++func getAttributeValue(attr xml.Attr) string {
++	value := []byte(reflect.ValueOf(attr).FieldByName("Value").String())
++	dup := make([]byte, len(value))
++	copy(dup, value)
++	return string(dup)
++}
++
++
++func findStartToken(d *xml.Decoder) (xml.Token, error) {
++	var err error
++	
++	for token, err := d.Token();  err == nil;  token, err = d.Token() {
++		switch token.(type) {
++		case xml.StartElement:
++			return token, nil
++		}
++	}
++
++	return nil, err
++}
++
++
++func unmarshalObject(d *xml.Decoder, objectName string) (interface{}, error) {
++	var token xml.Token
++	var objectFields map[string]interface{}
++	var arrayFields []interface{}
++	var err error
++
++	name := ""
++	emptyValue := interface{}("")
++	value := emptyValue
++	hasValue := false
++	hasObject := false
++	
++	for token, err = d.Token();   err == nil;   token, err = d.Token() {
++		switch token.(type) {
++		case xml.CharData:
++			charData := bytes.Trim(reflect.ValueOf(token).Bytes(), " \t\n")
++			if len(charData) > 0 {
++				if hasValue || hasObject {
++					return emptyValue, fmt.Errorf("unexpected value '%s'", charData)
++				} else {
++					hasValue = true
++					dup := make([]byte, len(charData))
++					copy(dup, charData)
++					value = string(dup)
++				}
++			}
++
++		case xml.StartElement:
++			name = getTokenName(token)
++			if hasValue {
++				return emptyValue, fmt.Errorf("unexpected tag <%s>\n", name)
++			}
++			if !hasObject {
++				hasObject = true
++				objectFields = make(map[string]interface{})
++				value = objectFields
++			}
++			if field, err := unmarshalObject(d, name); err != nil {
++				return emptyValue, err
++			} else {
++				currentValue := objectFields[name]
++				if currentValue == nil {
++					for _, attr := range getTokenAttributes(token) {
++						objectFields[name + getAttributeName(attr)] = getAttributeValue(attr)
++					}
++					objectFields[name] = field
++				} else {
++					v := reflect.ValueOf(currentValue)
++					if v.Kind() == reflect.Slice {
++						arrayFields = currentValue.([]interface{})
++					} else {
++						arrayFields = []interface{}{currentValue}
++					}
++					objectFields[name] = append(arrayFields, field)
++				}
++			}
++			
++		case xml.EndElement:
++			end := getTokenName(token)
++			if end == objectName {
++				return value, nil
++			} else {
++				return emptyValue, fmt.Errorf("unexpected end-tag </%s>", end)
++			}
++		}
++	}
++
++	return emptyValue, fmt.Errorf("incomplete/malformed XML")
++}
++
++
++func UnmarshalXmlObject(xmlString string) (map[string]interface{}, error) {
++	var startToken xml.Token
++	d := xml.NewDecoder(newXmlReader(xmlString))
++	result := make(map[string]interface{})	
++	err := error(nil)
++
++	if startToken, err = findStartToken(d); err == nil {
++		var value interface{}
++		key := getTokenName(startToken)
++		value, err = unmarshalObject(d, key)
++		result[key] = value
++	}
++
++	return result, err
++}
++
++func UnmarshalXmlArray(xmlString string) ([]interface{}, error) {
++	var token xml.Token
++	var name string
++	
++	d := xml.NewDecoder(newXmlReader(xmlString))
++	emptyResult := make([]interface{}, 0)
++	result := make([]interface{}, 0)
++	hasValue := false
++	hasObject := false
++	hasName := false
++	elemName := ""
++	
++	for err := error(nil);   err == nil;   token, err = d.Token() {
++		switch token.(type) {
++		case xml.CharData:
++			charData := bytes.Trim(reflect.ValueOf(token).Bytes(), " \t\n")
++			if len(charData) > 0 {
++				if hasValue || hasObject || !hasName {
++					return emptyResult, fmt.Errorf("unexpected value '%s'", charData)
++				} else {
++					hasValue = true
++					dup := make([]byte, len(charData))
++					copy(dup, charData)
++					result = append(result, string(dup))
++				}
++			}
++
++		case xml.StartElement:
++			name = getTokenName(token)
++			if !hasName {
++				if len(elemName) == 0 {
++					elemName = name
++				} else if name != elemName {
++					return emptyResult, fmt.Errorf("unexpected tag <%s>\n", name)
++				}
++				hasName = true
++			} else {
++				if hasValue {
++					return emptyResult, fmt.Errorf("unexpected tag <%s>\n", name)
++				}
++				hasObject = true
++				var value interface{}
++				if value, err = unmarshalObject(d, name); err != nil {
++					return emptyResult, err
++				}
++				result = append(result, value)
++			}
++			
++		case xml.EndElement:
++			end := getTokenName(token)
++			if end != elemName {
++				return emptyResult, fmt.Errorf("unexpected end-tag </%s>", end)
++			}
++			hasName = false
++			hasValue = false
++		}
++	}
++
++	return result, nil
++}
+-- 
+2.5.0
+

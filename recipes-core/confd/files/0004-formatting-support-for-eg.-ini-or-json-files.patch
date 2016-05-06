@@ -1,0 +1,239 @@
+From ddc15e42735dc9095cdd1179623cee12e54a0258 Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Fri, 8 Jan 2016 06:05:59 +0200
+Subject: [PATCH 04/10] formatting support for eg. ini or json files
+
+---
+ resource/template/file.go     | 165 ++++++++++++++++++++++++++++++++++++++++++
+ resource/template/resource.go |  14 +++-
+ 2 files changed, 177 insertions(+), 2 deletions(-)
+ create mode 100644 resource/template/file.go
+
+diff --git a/resource/template/file.go b/resource/template/file.go
+new file mode 100644
+index 0000000..8b9f28f
+--- /dev/null
++++ b/resource/template/file.go
+@@ -0,0 +1,165 @@
++package template
++
++import (
++	"bytes"
++	"os"
++        "errors"
++	//"regexp"
++        "io/ioutil"
++	"encoding/json"
++)
++
++
++type File struct {
++        file *os.File
++        format string
++        lastByteWritten byte
++	buf []byte
++}
++
++func (me *File) _map(s []byte) []byte {
++        return bytes.Map(func(r rune) rune {
++                switch r {
++                case '\f':
++                     return '\n'
++                default:
++                     return r
++                }
++        }, s)
++}
++
++func (me *File) freeWrite(b []byte) (int, error) {
++     return me.file.Write(me._map(b))
++}
++
++
++func (me *File) iniWrite(b []byte) (int, error) {
++         nl := []byte{'\n'}
++         wrote := 0
++         lines := bytes.SplitAfter(b, nl)
++         lastByteWritten := me.lastByteWritten
++
++         for _, l := range lines {
++                 if llen := len(l); llen > 0 {
++                         if bytes.Equal(bytes.TrimLeft(l, " \t"), nl) {
++                                 if lastByteWritten != '\n' {
++                                         if lgh, err := me.file.Write(nl); err != nil || lgh != len(nl) {
++                                                 return wrote, err
++                                         }
++                                 }
++                                 lastByteWritten = '\n'
++                         } else {
++                                 buf := l
++                                 lastByteInBuffer := buf[llen - 1]
++                                 if lastByteInBuffer == '\n' {
++                                         if lastByteWritten == '\n' {
++                                                 buf = append(bytes.Trim(buf, " \t\n"), '\n')
++                                                 if bytes.Equal(buf, nl) {
++                                                         buf = []byte{}
++                                                 }
++                                         } else {
++                                                 buf = append(bytes.TrimRight(buf, " \t\n"), '\n')
++                                         }
++                                 } else {
++                                         if lastByteWritten == '\n' {
++                                                 buf = bytes.TrimLeft(buf, " \t")
++                                         }
++                                 }
++                                 if len(buf) > 0 {
++                                         mappedBuf := me._map(buf)
++                                         mappedBufLen := len(mappedBuf)
++                                         lastByteWritten = mappedBuf[mappedBufLen-1]
++                                         if lgh, err := me.file.Write(mappedBuf); err != nil || lgh != mappedBufLen {
++                                                 return wrote, err
++                                         }
++                                 }
++                         }
++
++                         wrote += llen
++                 }
++         } // for
++
++         me.lastByteWritten = lastByteWritten
++
++         return wrote, nil
++}
++
++func (me *File) bufferWrite(b []byte) (int, error) {
++	if len(b) + len(me.buf) > 65536 {
++		return len(me.buf), errors.New("length of file exceeds 64Kbyte")
++	}
++	me.buf = append(me.buf, b...)
++	return len(b), nil
++}
++
++func (me *File) jsonFormat() error {
++	var data interface{}
++	empty := []byte("{}")
++	trimed := bytes.TrimSpace(me.buf)
++
++	switch trimed[0] {
++	case '{':
++		data = map[string]interface{}{}
++	case '[':
++		data = []interface{}{}
++		empty = []byte("[]")
++	default:
++		me.file.Write(empty)
++		return errors.New("invalid JSON: nether struct nor array")
++	}
++
++	if err := json.Unmarshal(trimed, &data); err != nil {
++		me.file.Write(empty)
++		return err
++	}
++
++	if pretty, err := json.MarshalIndent(data, "", "    "); err != nil {
++		me.file.Write(empty)
++		return err
++	} else {
++		if _, err := me.file.Write(pretty); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++func (me *File) Write(b []byte) (int, error) {
++        switch me.format {
++        case "free":
++             return me.freeWrite(b)
++        case "ini":
++		return me.iniWrite(b)
++	case "json":
++		return me.bufferWrite(b)
++        }
++        
++        return -1, errors.New("invalid format '" + me.format + "'")
++}
++
++func (me *File) Close() error {
++	switch me.format {
++	case "json":
++		if err := me.jsonFormat(); err != nil {
++			me.file.Close()
++			return err
++		}
++	}
++
++	return me.file.Close()
++}
++
++func (me *File) Name() string {
++        return me.file.Name()
++}
++
++func NewFile(dir, prefix string, format string) (*File, error) {
++	var file *os.File
++	var err error
++
++	if file, err = ioutil.TempFile(dir, prefix); err != nil {
++		return nil, err
++	}
++	
++	return &File{file, format, '\n', []byte{}}, nil
++}
+diff --git a/resource/template/resource.go b/resource/template/resource.go
+index 247f714..fab115f 100644
+--- a/resource/template/resource.go
++++ b/resource/template/resource.go
+@@ -30,6 +30,7 @@ type Config struct {
+ 	TemplateDir   string
+ }
+ 
++
+ // TemplateResourceConfig holds the parsed template resource.
+ type TemplateResourceConfig struct {
+ 	TemplateResource TemplateResource `toml:"template"`
+@@ -46,8 +47,9 @@ type TemplateResource struct {
+ 	Prefix        string
+ 	ReloadCmd     string `toml:"reload_cmd"`
+ 	Src           string
+-	StageFile     *os.File
++	StageFile     *File
+ 	Uid           int
++        Format        string `toml:"format"`
+ 	funcMap       map[string]interface{}
+ 	lastIndex     uint64
+ 	keepStageFile bool
+@@ -57,6 +59,11 @@ type TemplateResource struct {
+ 	syncOnly      bool
+ }
+ 
++
++
++
++
++
+ var ErrEmptySrc = errors.New("empty src template")
+ 
+ // NewTemplateResource creates a TemplateResource.
+@@ -102,6 +109,9 @@ func NewTemplateResource(path string, config Config) (*TemplateResource, error)
+ 	}
+ 
+ 	tr.Src = filepath.Join(config.TemplateDir, tr.Src)
++        if tr.Format == "" {
++                tr.Format = "free"
++        }
+ 	return &tr, nil
+ }
+ 
+@@ -142,7 +152,7 @@ func (t *TemplateResource) createStageFile() error {
+ 	}
+ 
+ 	// create TempFile in Dest directory to avoid cross-filesystem issues
+-	temp, err := ioutil.TempFile(filepath.Dir(t.Dest), "."+filepath.Base(t.Dest))
++	temp, err := NewFile(filepath.Dir(t.Dest), "."+filepath.Base(t.Dest), t.Format)
+ 	if err != nil {
+ 		return err
+ 	}
+-- 
+2.5.0
+

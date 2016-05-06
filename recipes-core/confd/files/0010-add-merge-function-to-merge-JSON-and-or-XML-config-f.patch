@@ -1,0 +1,190 @@
+From a217aad326f57d638be3082bd3b8f0eefd8bbf48 Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Mon, 29 Feb 2016 03:52:13 +0200
+Subject: [PATCH 10/10] add 'merge' function to merge JSON and/or XML config
+ fragemnets
+
+---
+ resource/template/merge.go          | 157 ++++++++++++++++++++++++++++++++++++
+ resource/template/template_funcs.go |   1 +
+ 2 files changed, 158 insertions(+)
+ create mode 100644 resource/template/merge.go
+
+diff --git a/resource/template/merge.go b/resource/template/merge.go
+new file mode 100644
+index 0000000..e3983fc
+--- /dev/null
++++ b/resource/template/merge.go
+@@ -0,0 +1,157 @@
++package template
++
++import (
++	"fmt"
++	"os"
++	"strings"
++	"regexp"
++	"reflect"
++	"encoding/json"
++)
++
++// this is doing the same as the ioutil.ReadFile()
++// but fails in case the file is biger than the allowed
++// 64Kbyte maximum
++func readFile(path string) ([]byte, error) {
++	file, ferr := os.Open(path)
++	if ferr != nil {
++		return []byte{}, ferr
++	}
++
++	info, ierr := file.Stat()
++	if ierr != nil {
++		return []byte{}, ierr
++	}
++
++	if info.Size() > 65536 {
++		return []byte{}, fmt.Errorf("File '%s' length %d exceeds the allowed max (64Kbyte)\n", path, info.Size())
++	}
++	
++	size := int(info.Size())
++	buf := make([]byte, size)
++
++	count, err := file.Read(buf)
++	if err != nil {
++		return []byte{}, fmt.Errorf("Failed to read file '%s': %v\n", path, err)
++	}
++	if count != size {
++		return []byte{}, fmt.Errorf("Failed to read file '%s': partial read (requested %d, read %d)\n", path, size, count)
++	}
++
++	return buf, nil
++}
++
++func hasValidXmlProlog(xml string) bool {
++	validXML := regexp.MustCompile(`<\?xml([^?]*)\?>`)
++	singleSpace := regexp.MustCompile(`([ \t\f\n]+)`)
++	hasVersion := false
++	hasEncoding := false
++
++	prolog := validXML.Find([]byte(xml))
++	if prolog == nil {
++		return false
++	}
++
++	attrs := strings.Split(strings.Trim(string(singleSpace.ReplaceAll(prolog[5:len(prolog)-2],[]byte(" "))), " \t"), " ")
++
++	for _,a := range attrs {
++		kv := strings.Split(a, "=")
++
++		if len(kv) != 2 {
++			return false
++		}
++
++		k := strings.Trim(kv[0], " \t")
++		v := strings.Trim(kv[1], " \t")
++
++		switch k {
++		case "version":
++			hasVersion = true
++		case "encoding":
++			if v != `"UTF-8"` {
++				return false
++			}
++		}
++	}
++
++	if !hasVersion || !hasEncoding {
++		return false
++	}
++
++	return true
++}
++
++func mergeFragment(fragment, result map[string]interface{}) error {
++	for n, fi := range fragment {
++		fk := reflect.ValueOf(fi).Kind()
++		ri := result[n]
++
++		if ri != nil && fk == reflect.ValueOf(ri).Kind() && fk == reflect.Map {
++			mergeFragment(
++				fi.(map[string]interface{}),
++				ri.(map[string]interface{}))
++		} else {
++			result[n] = fi
++		}
++	}
++
++	return nil
++}
++
++func fragmentType(fragment string) string {
++	f := strings.Trim(fragment, " \t\n\f")
++	l := len(f)
++
++	if l >= 13 {
++		if f[0:5] == "<?xml" && f[l-1:l] == ">" {
++			if !hasValidXmlProlog(f) {
++				return "unknown"
++			}
++			return "xml"
++		}
++	}
++
++	if l >= 2 {
++		if f[0:1] == "{" && f[l-1:l] == "}" {
++			return "json"
++		}
++		if f[0:1] == "[" && f[l-1:l] == "]" {
++			return "jsonArray"
++		}
++	}
++
++	return "<unknown>"
++}
++
++func Merge(fragments ...string) (map[string]interface{}, error) {
++	result := map[string]interface{}{}
++	err := error(nil)
++
++	for _, f := range fragments {
++		v := map[string]interface{}{}
++	
++		switch t := fragmentType(f); t {
++		case "json":
++			if err = json.Unmarshal([]byte(f), &v); err != nil {
++				return result, fmt.Errorf("malformed JSON fragment: %v", err)
++			}
++		case "xml":
++			x := map[string]interface{}{}
++			if x, err = UnmarshalXmlObject(f); err != nil {
++				return result, fmt.Errorf("malformed XML fragment: %v", err)
++			}
++			for _, i := range x {
++				v = i.(map[string]interface{})
++				break
++			}
++		default:
++			return result, fmt.Errorf("invalid fragment '%s'", t)
++		}
++
++		if err = mergeFragment(v, result); err != nil {
++			return result, fmt.Errorf("fragment merge failed: %v", err)
++		}
++	}
++
++	return result, nil
++}
+diff --git a/resource/template/template_funcs.go b/resource/template/template_funcs.go
+index 03d36e2..c5b1ac9 100644
+--- a/resource/template/template_funcs.go
++++ b/resource/template/template_funcs.go
+@@ -31,6 +31,7 @@ func newFuncMap() map[string]interface{} {
+ 	m["lookupIP"] = LookupIP
+ 	m["lookupSRV"] = LookupSRV
+ 	m["include"] = IncludeFile
++	m["merge"] = Merge
+ 	m["mustInclude"] = MustIncludeFile
+ 	m["regReplace"] = RegexpReplace
+ 	m["regMatch"] = RegexpMatch
+-- 
+2.5.0
+

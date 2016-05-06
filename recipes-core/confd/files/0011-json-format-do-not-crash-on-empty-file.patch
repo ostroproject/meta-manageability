@@ -1,0 +1,36 @@
+From 2ff7fa57f2ea9282320a16e19fe4bb91d845e681 Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Thu, 3 Mar 2016 23:28:21 +0200
+Subject: [PATCH] json format: do not crash on empty file
+
+---
+ resource/template/file.go | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/resource/template/file.go b/resource/template/file.go
+index 8b9f28f..393e8ee 100644
+--- a/resource/template/file.go
++++ b/resource/template/file.go
+@@ -97,6 +97,10 @@ func (me *File) jsonFormat() error {
+ 	empty := []byte("{}")
+ 	trimed := bytes.TrimSpace(me.buf)
+ 
++	if len(trimed) == 0 {
++		return nil
++	}
++
+ 	switch trimed[0] {
+ 	case '{':
+ 		data = map[string]interface{}{}
+@@ -105,7 +109,7 @@ func (me *File) jsonFormat() error {
+ 		empty = []byte("[]")
+ 	default:
+ 		me.file.Write(empty)
+-		return errors.New("invalid JSON: nether struct nor array")
++		return errors.New("invalid JSON: neither struct nor array")
+ 	}
+ 
+ 	if err := json.Unmarshal(trimed, &data); err != nil {
+-- 
+2.5.0
+

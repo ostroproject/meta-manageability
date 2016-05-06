@@ -1,0 +1,427 @@
+From 1ea828880b946acb4e06571cec42db131874caca Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Wed, 6 Jan 2016 19:58:10 +0200
+Subject: [PATCH 03/10] add 'file' backend
+
+---
+ backends/client.go      |   3 +
+ backends/config.go      |   1 +
+ backends/file/client.go | 310 ++++++++++++++++++++++++++++++++++++++++++++++++
+ config.go               |  12 ++
+ 4 files changed, 326 insertions(+)
+ create mode 100644 backends/file/client.go
+
+diff --git a/backends/client.go b/backends/client.go
+index 5e60228..d796131 100644
+--- a/backends/client.go
++++ b/backends/client.go
+@@ -13,6 +13,7 @@ import (
+ 	"github.com/kelseyhightower/confd/backends/stackengine"
+ 	"github.com/kelseyhightower/confd/backends/vault"
+ 	"github.com/kelseyhightower/confd/backends/zookeeper"
++	"github.com/kelseyhightower/confd/backends/file"
+ 	"github.com/kelseyhightower/confd/log"
+ )
+ 
+@@ -65,6 +66,8 @@ func New(config Config) (StoreClient, error) {
+ 		return dynamodb.NewDynamoDBClient(table)
+ 	case "stackengine":
+ 		return stackengine.NewStackEngineClient(backendNodes, config.Scheme, config.ClientCert, config.ClientKey, config.ClientCaKeys, config.AuthToken)
++        case "file":
++                return file.NewFileClient(config.TopDir)
+ 	}
+ 	return nil, errors.New("Invalid backend")
+ }
+diff --git a/backends/config.go b/backends/config.go
+index deb638e..5141fe2 100644
+--- a/backends/config.go
++++ b/backends/config.go
+@@ -15,4 +15,5 @@ type Config struct {
+ 	Username     string
+ 	AppID        string
+ 	UserID       string
++        TopDir       string
+ }
+diff --git a/backends/file/client.go b/backends/file/client.go
+new file mode 100644
+index 0000000..6f467ff
+--- /dev/null
++++ b/backends/file/client.go
+@@ -0,0 +1,310 @@
++package file
++
++import (
++	"os"
++	"fmt"
++	"path"
++	"sync"
++	"strings"
++	"io/ioutil"
++	"golang.org/x/exp/inotify"
++	"github.com/kelseyhightower/confd/log"
++)
++
++
++type EventChannel struct {
++	prefix string
++	channel chan string
++}
++
++type Client struct {
++	topdir string
++	watcher *inotify.Watcher
++	chanMap []EventChannel
++	chanMapMutex sync.RWMutex
++}
++
++func (me *Client) newEventChannel(prefix string) uint64 {
++	channel := make(chan string, 10)
++
++	me.chanMapMutex.Lock()
++
++	maplen := len(me.chanMap)
++	if maplen >= (1 << 16) - 1 {
++		me.chanMapMutex.Unlock()
++		log.Fatal("channel map overflow in 'file' backend")
++	}
++	waitIndex := (uint64(maplen) << 48)
++	me.chanMap = append(me.chanMap, EventChannel{prefix, channel})
++	
++	me.chanMapMutex.Unlock()
++	
++	return waitIndex
++}
++
++func (me *Client) getEventChannel(prefix string, waitIndex uint64) <-chan string {
++	mapidx := int(waitIndex >> 48) & ((1 << 16) - 1)
++
++	me.chanMapMutex.RLock()
++	
++	eventChannel := me.chanMap[mapidx]
++	if prefix != eventChannel.prefix {
++		me.chanMapMutex.RUnlock()
++		log.Fatal("failed to fetch eventChannel in 'file' backend")
++	}
++
++	me.chanMapMutex.RUnlock()
++
++	return eventChannel.channel
++}
++
++
++func (me *Client) addWatches(dir string) error {
++	evmask := inotify.IN_CREATE | inotify.IN_DELETE | inotify.IN_MODIFY
++	
++	log.Info("start watching '%s' directory", dir)
++	
++	if err := me.watcher.AddWatch(dir, evmask); err != nil {
++		return err
++	}
++
++	infos, err := ioutil.ReadDir(dir)
++	if err != nil {
++		return err
++	}
++
++	for _, i := range infos {
++		if i.IsDir() {
++			if err := me.addWatches(dir + "/" + i.Name()); err != nil {
++				return err
++			}
++		}
++	}
++
++	return nil
++}
++
++func (me *Client) removeWatches(dir string) error {
++	log.Info("stop watching '%s' directory", dir)
++	
++	if err := me.watcher.RemoveWatch(dir); err != nil {
++		return err
++	}
++	
++	infos, err := ioutil.ReadDir(dir)
++	if err != nil {
++		return err
++	}
++	
++	for _, i := range infos {
++		if i.IsDir() {
++			if err := me.removeWatches(dir + "/" + i.Name()); err != nil {
++				return err
++			}
++		}
++	}
++	
++	return nil
++}
++
++func (me *Client) updateWatches(ev *inotify.Event) error {
++	evmask := ev.Mask
++	
++	if (evmask & inotify.IN_ISDIR) != 0 {
++		if (evmask & inotify.IN_CREATE) != 0 {
++			if err := me.addWatches(ev.Name); err != nil {
++				return err
++			}
++		} else if (evmask & inotify.IN_DELETE) != 0 {
++			if err := me.removeWatches(ev.Name); err != nil {
++				return err
++			}
++		}
++	}
++	
++	return nil
++}
++
++func (me *Client) readFile(path string) (string, error) {
++	file, err := os.OpenFile(path, os.O_RDONLY, 0644)
++	if err != nil {
++		log.Error("failed to open file '%s': %v", path, err)
++		return "", err
++	}
++
++	defer func() {
++		file.Close()
++	}()
++	
++	info, err := file.Stat()
++	if err != nil {
++		log.Error("can't stat file '%s': %v", path, err)
++		return "", err
++	}
++	
++	size := int(info.Size())
++	if size > 65536 {
++		err := fmt.Errorf("size exceeds the allowed 64Kbyte max size")
++		log.Error("file '%s' too big: %v", path, err)
++		return "", err
++	}
++	
++	if size < 1 {
++		return "", nil
++	}
++	
++	content := make([]byte, size)
++	len, err := file.Read(content)
++	if err != nil {
++		log.Error("failed to read file '%s': %v", path, err)
++		return "", err
++	}
++	if len < size {
++		log.Error("partial read of '%s': requested %d byte; read %d", path, size, len)
++		return "", fmt.Errorf("partial read")
++	}
++	
++	return string(content), nil
++}
++
++
++func (me *Client) getAllValues(key string, values map[string]string) error {
++	path := me.topdir + key
++
++	info, err := os.Stat(path)
++	if err != nil {
++		return err
++	}
++	
++	if info.IsDir() {
++		if key == "/" {
++			key = ""
++		}
++		
++		infos, err := ioutil.ReadDir(path)
++		if err != nil {
++			return err
++		}
++		
++		for _, i := range infos {
++			new_key := key + "/" + i.Name()
++			
++			if i.IsDir() {
++				if err := me.getAllValues(new_key, values); err != nil {
++					return err
++				}
++			} else {
++				new_path := path + "/" + i.Name()
++				
++				if me.validKey(new_path) {
++					value, err := me.readFile(new_path)
++					if err != nil {
++						return err
++					}
++					
++					values[new_key] = value
++				}
++			}
++		}
++	} else {
++		value, err := me.readFile(path)
++		if err != nil {
++			return err
++		}
++		
++		values[key] = value
++	}
++	
++	return nil
++}
++
++func (me *Client) validKey(key string) bool {
++	basename := path.Base(key)
++	
++	for _, c := range basename {
++		if (c < 0x30 || c > 0x39) && (c <  0x41 || c > 0x5a) && (c < 0x61 || c > 0x7a) && (c != 0x5f) {
++			return false
++		}
++	}
++	
++	return true
++}
++
++func NewFileClient(dir string) (*Client, error) {
++	log.Info("'file' backend top-dir is '%s'", dir)
++	
++	watcher, err := inotify.NewWatcher()
++	
++	if err != nil {
++		return nil, err
++	}
++	
++	client := &Client{dir, watcher, []EventChannel{}, sync.RWMutex{}}
++	
++	go func () {
++		for {
++			select {
++				
++			case ev := <-client.watcher.Event:
++				if !client.validKey(ev.Name) {
++					break
++				}
++				
++				if err := client.updateWatches(ev); err != nil {
++					log.Fatal("failed to update watches in 'file' backend")
++				}
++				
++				if (ev.Mask & inotify.IN_ISDIR) == 0 && (ev.Mask & inotify.IN_DELETE) == 0 {
++					path := strings.TrimPrefix(ev.Name, client.topdir)
++					
++					log.Info("inotify reported change of '%s'", path)
++					
++					client.chanMapMutex.RLock()
++					
++					for _, eventChannel := range client.chanMap {
++						if strings.HasPrefix(path, eventChannel.prefix) {
++							eventChannel.channel <- path
++						}
++					}
++					
++					client.chanMapMutex.RUnlock()
++				}
++				
++			case err := <-client.watcher.Error:
++				log.Fatal("inotify failed: %v", err)
++			}
++		}
++	} ()
++
++	client.addWatches(dir)
++	
++	return client, nil
++}
++
++func (me *Client) GetValues(keys []string) (map[string]string, error) {
++	values := make(map[string]string)
++	
++	for _, k := range keys {
++		me.getAllValues(k, values)
++	}
++	
++	return values, nil
++}
++
++func (me *Client) WatchPrefix(prefix string, keys []string, waitIndex uint64, stopChan chan bool) (uint64, error) {
++	var eventChannel <-chan string
++	
++	log.Info("WatchPrefix enter: prefix='%s', waitIndex=%016x", prefix, waitIndex)
++	
++	if waitIndex == 0 {
++		return me.newEventChannel(prefix), nil
++	}
++	
++	eventChannel = me.getEventChannel(prefix, waitIndex)
++	
++	path := <-eventChannel
++	
++	log.Info("WatchPrefix leave: '%s' changed. waitIndex=%016x", path, waitIndex)
++	
++	return waitIndex + 1, nil
++}
+diff --git a/config.go b/config.go
+index 99eb912..b4f24c6 100644
+--- a/config.go
++++ b/config.go
+@@ -49,6 +49,7 @@ var (
+ 	watch             bool
+ 	appID             string
+ 	userID            string
++        topDir            string
+ )
+ 
+ // A Config structure is used to configure confd.
+@@ -76,6 +77,7 @@ type Config struct {
+ 	Watch        bool     `toml:"watch"`
+ 	AppID        string   `toml:"app_id"`
+ 	UserID       string   `toml:"user_id"`
++        TopDir       string   `toml:"top-dir"`
+ }
+ 
+ func init() {
+@@ -106,6 +108,7 @@ func init() {
+ 	flag.StringVar(&username, "username", "", "the username to authenticate as (only used with vault and etcd backends)")
+ 	flag.StringVar(&password, "password", "", "the password to authenticate with (only used with vault and etcd backends)")
+ 	flag.BoolVar(&watch, "watch", false, "enable watch support")
++        flag.StringVar(&topDir, "top-dir", "/var/cache/confs", "root directory of 'file' backend")
+ }
+ 
+ // initConfig initializes the confd configuration by first setting defaults,
+@@ -126,6 +129,7 @@ func initConfig() error {
+ 		Interval: 600,
+ 		Prefix:   "",
+ 		Scheme:   "http",
++                TopDir:   "/var/cache/confs",
+ 	}
+ 	// Update config from the TOML configuration file.
+ 	if configFile == "" {
+@@ -218,6 +222,7 @@ func initConfig() error {
+ 		Username:     config.Username,
+ 		AppID:        config.AppID,
+ 		UserID:       config.UserID,
++                TopDir:       config.TopDir,
+ 	}
+ 	// Template configuration.
+ 	templateConfig = template.Config{
+@@ -269,6 +274,11 @@ func processEnv() {
+ 	if len(key) > 0 {
+ 		config.ClientKey = key
+ 	}
++
++        topdir := os.Getenv("CONFD_TOP_DIR")
++        if len(topdir) > 0 {
++                config.TopDir = topdir
++        }
+ }
+ 
+ func setConfigFromFlag(f *flag.Flag) {
+@@ -319,5 +329,7 @@ func setConfigFromFlag(f *flag.Flag) {
+ 		config.AppID = appID
+ 	case "user-id":
+ 		config.UserID = userID
++        case "top-dir":
++                config.TopDir = topDir
+ 	}
+ }
+-- 
+2.5.0
+

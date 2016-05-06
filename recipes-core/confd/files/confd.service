@@ -1,0 +1,14 @@
+[Unit]
+Description=Confd server
+After=network.target
+RequiresMountsFor=/var/cache/confs
+
+[Service]
+ExecStart=/usr/bin/confd -backend=file -watch
+Restart=on-failure
+ProtectSystem=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
+

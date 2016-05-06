@@ -1,0 +1,116 @@
+From 04a6d142b5fb795485803bf7a5772f4d7b879f73 Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Wed, 3 Feb 2016 00:08:34 +0200
+Subject: [PATCH 09/10] add integerValue and stringValue functions to support
+ defaults
+
+---
+ resource/template/template_funcs.go |  2 +
+ resource/template/value.go          | 82 +++++++++++++++++++++++++++++++++++++
+ 2 files changed, 84 insertions(+)
+ create mode 100644 resource/template/value.go
+
+diff --git a/resource/template/template_funcs.go b/resource/template/template_funcs.go
+index 863ffba..03d36e2 100644
+--- a/resource/template/template_funcs.go
++++ b/resource/template/template_funcs.go
+@@ -34,6 +34,8 @@ func newFuncMap() map[string]interface{} {
+ 	m["mustInclude"] = MustIncludeFile
+ 	m["regReplace"] = RegexpReplace
+ 	m["regMatch"] = RegexpMatch
++	m["stringValue"] = StringValueOrDefault
++	m["integerValue"] = IntegerValueOrDefault
+ 	return m
+ }
+ 
+diff --git a/resource/template/value.go b/resource/template/value.go
+new file mode 100644
+index 0000000..5c1ffaa
+--- /dev/null
++++ b/resource/template/value.go
+@@ -0,0 +1,82 @@
++package template
++
++import (
++	"fmt"
++	"reflect"
++)
++
++
++func StringValueOrDefault(value interface{}, dflt ...string) (string, error) {
++	if l := len(dflt); l > 1 {
++		return "", fmt.Errorf("Too many default values (%d): only one is allowed", l)
++	}
++	
++	if reflect.TypeOf(value) != nil {
++		switch value.(type) {
++		case string, []byte:
++			return value.(string), nil
++		default:
++			return fmt.Sprintf("%+v", value), nil
++		}
++	}
++
++	if len(dflt) == 0 {
++		return "", nil
++	}
++	
++	return dflt[0], nil
++}
++
++func IntegerValueOrDefault(value interface{}, dflt ...int) (int, error) {
++	if l := len(dflt); l > 1 {
++		return 0, fmt.Errorf("Too many default values (%d): only one is allowed", l)
++	}
++	
++	if t := reflect.TypeOf(value); t != nil {
++		var retval int
++
++		switch value.(type) {
++		case byte:
++			retval = int(value.(byte))
++		case int:
++			retval = int(value.(int))
++		case int8:
++			retval = int(value.(int8))
++		case int16:
++			retval = int(value.(int16))
++		case int32:
++			retval = int(value.(int32))
++		case int64:
++			retval = int(value.(int64))
++		case uint16:
++			retval = int(value.(uint16))
++		case uint32:
++			retval = int(value.(uint32))
++		case uint64:
++			retval = int(value.(uint64))
++		case float32:
++			retval = int(value.(float32))
++		case float64:
++			retval = int(value.(float64))
++		case string, []byte:
++			cnt, err := fmt.Sscan(value.(string), retval)
++
++			if err != nil {
++				return 0, err
++			}
++			if cnt < 1 {
++				return 0, fmt.Errorf("invalid number '%s'", value.(string))
++			}
++		default:
++			return 0, fmt.Errorf("can't convert %s to int", t.Name()) 
++		}
++
++		return retval, nil
++	}
++
++	if len(dflt) == 0 {
++		return 0, nil
++	}
++	
++	return dflt[0], nil
++}
+-- 
+2.5.0
+

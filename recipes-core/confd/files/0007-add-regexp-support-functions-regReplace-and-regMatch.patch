@@ -1,0 +1,55 @@
+From 7e869d0dc3e85c697673aceba42aa05381c781eb Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Sun, 24 Jan 2016 20:17:31 +0200
+Subject: [PATCH 07/10] add regexp support functions regReplace and regMatch
+
+---
+ resource/template/regexp.go         | 22 ++++++++++++++++++++++
+ resource/template/template_funcs.go |  2 ++
+ 2 files changed, 24 insertions(+)
+ create mode 100644 resource/template/regexp.go
+
+diff --git a/resource/template/regexp.go b/resource/template/regexp.go
+new file mode 100644
+index 0000000..1918cc0
+--- /dev/null
++++ b/resource/template/regexp.go
+@@ -0,0 +1,22 @@
++package template
++
++import (
++	"regexp"
++)
++
++
++func RegexpReplace(src, expr, repl string) (string, error) {
++	if re, err := regexp.Compile(expr); err != nil {
++		return "", err
++	} else {
++		return re.ReplaceAllString(src, repl), nil
++	}
++}
++
++func RegexpMatch(s, expr string) (bool, error) {
++	if re, err := regexp.Compile(expr); err != nil {
++		return false, err
++	} else {
++		return re.MatchString(s), nil
++	}
++}
+diff --git a/resource/template/template_funcs.go b/resource/template/template_funcs.go
+index 630c724..863ffba 100644
+--- a/resource/template/template_funcs.go
++++ b/resource/template/template_funcs.go
+@@ -32,6 +32,8 @@ func newFuncMap() map[string]interface{} {
+ 	m["lookupSRV"] = LookupSRV
+ 	m["include"] = IncludeFile
+ 	m["mustInclude"] = MustIncludeFile
++	m["regReplace"] = RegexpReplace
++	m["regMatch"] = RegexpMatch
+ 	return m
+ }
+ 
+-- 
+2.5.0
+

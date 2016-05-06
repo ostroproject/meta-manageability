@@ -1,0 +1,31 @@
+From fc6a86d204dcd50e573da7a8c47f7e3997b5d957 Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Mon, 29 Feb 2016 22:02:38 +0200
+Subject: [PATCH 02/10] added inotify package to vendor subtree
+
+---
+ .gitmodules             | 3 +++
+ vendor/golang.org/x/exp | 1 +
+ 2 files changed, 4 insertions(+)
+ create mode 100644 .gitmodules
+ create mode 160000 vendor/golang.org/x/exp
+
+diff --git a/.gitmodules b/.gitmodules
+new file mode 100644
+index 0000000..c92a6a3
+--- /dev/null
++++ b/.gitmodules
+@@ -0,0 +1,3 @@
++[submodule "vendor/golang.org/x/exp"]
++	path = vendor/golang.org/x/exp
++	url = https://github.com/golang/exp.git
+diff --git a/vendor/golang.org/x/exp b/vendor/golang.org/x/exp
+new file mode 160000
+index 0000000..6b3e1e8
+--- /dev/null
++++ b/vendor/golang.org/x/exp
+@@ -0,0 +1 @@
++Subproject commit 6b3e1e8b13b991c5e72b871e5a93df8eb9318e2a
+-- 
+2.5.0
+

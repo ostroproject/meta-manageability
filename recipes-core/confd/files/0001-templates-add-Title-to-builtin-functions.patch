@@ -1,0 +1,24 @@
+From d448b4ae52c9643076983ee39b23d7907ed5de51 Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Wed, 30 Dec 2015 09:41:52 +0200
+Subject: [PATCH 01/10] templates: add Title() to builtin functions
+
+---
+ resource/template/template_funcs.go | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/resource/template/template_funcs.go b/resource/template/template_funcs.go
+index 41a66ce..f0cdfca 100644
+--- a/resource/template/template_funcs.go
++++ b/resource/template/template_funcs.go
+@@ -23,6 +23,7 @@ func newFuncMap() map[string]interface{} {
+ 	m["datetime"] = time.Now
+ 	m["toUpper"] = strings.ToUpper
+ 	m["toLower"] = strings.ToLower
++        m["title"] = strings.Title
+ 	m["contains"] = strings.Contains
+ 	m["replace"] = strings.Replace
+ 	m["lookupIP"] = LookupIP
+-- 
+2.5.0
+

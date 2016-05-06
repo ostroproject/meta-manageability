@@ -1,0 +1,85 @@
+From 1e483b804764bea4feed643d3ddc9195cc23efde Mon Sep 17 00:00:00 2001
+From: Janos Kovacs <jankovac503@gmail.com>
+Date: Sun, 24 Jan 2016 17:55:13 +0200
+Subject: [PATCH 06/10] added template functions 'include' and 'mustInclude'
+
+---
+ resource/template/include.go        | 52 +++++++++++++++++++++++++++++++++++++
+ resource/template/template_funcs.go |  2 ++
+ 2 files changed, 54 insertions(+)
+ create mode 100644 resource/template/include.go
+
+diff --git a/resource/template/include.go b/resource/template/include.go
+new file mode 100644
+index 0000000..d672b21
+--- /dev/null
++++ b/resource/template/include.go
+@@ -0,0 +1,52 @@
++package template
++
++import (
++	"fmt"
++	"os"
++)
++
++
++
++func MustIncludeFile(path string) (string, error) {
++	var content string = ""
++	var err error = nil
++	var f *os.File = nil
++	
++	if f, err = os.Open(path);  err == nil {
++		var i os.FileInfo
++		var lgh int
++
++		if i, err = f.Stat();  err == nil {
++			if i.IsDir() {
++				err = fmt.Errorf("%s is a directory", path)
++			} else {
++				flen := i.Size()
++
++				if (flen > 65536) {
++					err = fmt.Errorf("length of '%s' file (%d) exceeds 64Kb",
++						path, flen)
++				} else {
++					buf := make([]byte, i.Size())
++
++					if lgh, err = f.Read(buf); err == nil {
++						if int64(lgh) != flen {
++							err = fmt.Errorf("partial read of '%s'", path)
++						} else {
++							content = string(buf)
++						}
++					}
++				}
++			}
++		}
++
++		f.Close()
++	}
++			
++	return content, err
++}
++
++
++func IncludeFile(path string) string {
++	content, _ := MustIncludeFile(path)
++	return content;
++}
+diff --git a/resource/template/template_funcs.go b/resource/template/template_funcs.go
+index 571dbea..630c724 100644
+--- a/resource/template/template_funcs.go
++++ b/resource/template/template_funcs.go
+@@ -30,6 +30,8 @@ func newFuncMap() map[string]interface{} {
+ 	m["replace"] = strings.Replace
+ 	m["lookupIP"] = LookupIP
+ 	m["lookupSRV"] = LookupSRV
++	m["include"] = IncludeFile
++	m["mustInclude"] = MustIncludeFile
+ 	return m
+ }
+ 
+-- 
+2.5.0
+
