@@ -1,0 +1,7 @@
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+    <name replace-wildcards="yes">%h</name>
+    <service>
+        <type>_workstation._tcp</type>
+    </service>
+</service-group>
