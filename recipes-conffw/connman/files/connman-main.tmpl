@@ -1,0 +1,74 @@
+{{$hostname := "host"}}
+{{$wifi_common_defs := "/common/device/wifi"}}
+{{$wifi_host_specific_defs := printf "/%s/device/wifi" $hostname}}
+
+{{$has_common_defs := exists $wifi_common_defs}}
+{{$has_host_specific_defs := exists $wifi_host_specific_defs}}
+
+{{define "AppendDefs"}}
+    {{$defs := .}}
+    {{range $key, $value := $defs}}
+	{{if ne $value "-"}}
+	    {{$key}}={{$value}}
+	{{end}}
+    {{end}}
+{{end}}
+
+{{define "SectionEdit"}}
+    {{$defs := json .}}
+    {{$settings := regReplace (include "/etc/connman/main.conf") "(\n\\[)" "\n\f["}}
+
+    {{if contains $settings "[General]"}}
+    	{{$pattern := "(\\[General\\][^[]*)(.*)"}}
+        {{$general := split (regReplace $settings $pattern "$1") "\n"}}
+	{{$rest := regReplace $settings $pattern "$2"}}
+
+	{{/* First filter out the fields in $defs */}}
+	{{range $idx, $line := $general}}
+	    {{$key := regReplace $line "([A-Za-z]+)([ \t]*)=(.*)" "$1"}}
+	    {{with $value := index $defs $key}}
+	    {{else}}
+	        {{$line}}
+	    {{end}}
+	{{end}}
+
+	{{/* then append them if proper */}}
+	{{template "AppendDefs" $defs}}
+	{{print "\f"}}
+
+	{{/* output the rest of the config file */}}
+	{{$rest}}
+    {{else}}
+	{{print "[General]\n"}}
+	{{template "AppendDefs" $defs}}
+	{{print "\f"}}
+    	{{$settings}}
+    {{end}}
+{{end}}
+
+
+{{define "General"}}
+    {{$defs := json .}}
+    {{$mode := stringValue $defs.Mode}}
+
+    {{if or (eq $mode "AccessPoint") (eq $mode "Tether")}}
+        {{template "SectionEdit" (printf "{\"TetheringTechnologies\":\"wifi\",\"PersistentTetheringMode\":\"true\"}")}}
+    {{else}}
+	{{template "SectionEdit" (printf "{\"TetheringTechnologies\":\"-\",\"PersistentTetheringMode\":\"-\"}")}}
+    {{end}}
+{{end}}
+
+
+{{if $has_common_defs}}
+    {{if $has_host_specific_defs}}
+        {{template "General" (join (split (print (getv $wifi_common_defs) (getv $wifi_host_specific_defs)) "}{") ", ")}}
+    {{else}}
+        {{template "General" (getv $wifi_common_defs)}}
+    {{end}}
+{{else}}
+    {{if $has_host_specific_defs}}
+        {{template "General" (getv $wifi_host_specific_defs)}}
+    {{else}}
+        {{include "/etc/connman/main.conf"}}
+    {{end}}
+{{end}}

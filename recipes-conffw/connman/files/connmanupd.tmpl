@@ -1,0 +1,86 @@
+{{$wifi_factory_conf := "/factory/device/wifi"}}
+{{$wifi_common_conf := "/common/device/wifi"}}
+{{$wifi_local_conf := "/local/device/wifi"}}
+
+{{$ethernet_factory_conf := "/factory/device/ethernet"}}
+{{$ethernet_common_conf := "/common/device/ethernet"}}
+{{$ethernet_local_conf := "/local/device/ethernet"}}
+
+{{$wifi_factory_defs := getv $wifi_factory_conf "{}"}}
+{{$wifi_common_defs := getv $wifi_common_conf "{}"}}
+{{$wifi_local_defs := getv $wifi_local_conf "{}"}}
+
+{{$ethernet_factory_defs := getv $ethernet_factory_conf "{}"}}
+{{$ethernet_common_defs := getv $ethernet_common_conf "{}"}}
+{{$ethernet_local_defs := getv $ethernet_local_conf "{}"}}
+
+{{$wifi := merge $wifi_factory_defs $wifi_common_defs $wifi_local_defs}}
+{{$ethernet := merge $ethernet_factory_defs $ethernet_common_defs $ethernet_local_defs}}
+
+{{define "IPv4"}}
+    {{$defs := .}}
+            "IPv4": {
+    {{if eq (stringValue $defs) "DHCP"}}
+                "Method": "dhcp"
+    {{else}}
+                 "Method": "manual",
+	         "Address": "{{$defs.IPAddress}}",
+	         "Netmask": "{{$defs.SubnetMask}}",
+	         "Gateway": "{{$defs.Gateway}}"
+    {{end}}
+            },
+{{end}}
+
+{{define "Security"}}
+    {{$defs := .}}
+    {{with $Mode := .Mode}}
+            "Security": {
+        {{$mode := toLower $Mode}}
+	{{if eq $mode "none"}}
+	        "Mode": "none"
+	{{else if eq $mode "wep"}}
+	    {{with $key := $defs.WEPKey}}
+	            "Mode": "wep",
+		    "Passphrase": {{$key}}
+	    {{end}}
+	{{else if contains $mode "wpa"}}
+	    {{if contains $mode "private"}}
+	        {{with $psk := $defs.PreSharedKey}}
+		    "Mode": "psk",
+		    "Passphrase": "{{$psk}}"
+		{{end}}
+	    {{else}}
+	    {{end}}
+	{{end}}
+                },
+    {{end}}
+{{end}}
+
+{{define "Visible"}}
+            "Hidden": {{not .}}
+{{end}}
+
+{
+{{with $Mode := $wifi.Mode}}
+    "WiFi": {
+        "Valid": true,
+        "Enable": {{stringValue $wifi.Enable "false"}},
+        "Name": "{{stringValue $wifi.Name ""}}",
+	"Tether": {{if ne $Mode "EndPoint"}}true{{else}}false{{end}},
+        {{template "IPv4" $wifi.IPv4}}
+	{{template "Security" $wifi.Security}}
+	"Connect": "auto",
+	"Hidden": false
+    } {{with $ethernet.IPv4}},{{end}}
+{{end}}
+
+{{with $IP4 := $ethernet.IPv4}}
+    "Wired": {
+        "Valid": true,
+        "Name": "Wired",
+        "Enable": {{stringValue $ethernet.Enable "false"}},
+        {{template "IPv4" $IP4}}
+	"Connect": "auto"
+    }
+{{end}}
+}

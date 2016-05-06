@@ -1,0 +1,1 @@
+{"Enable":true,"Mode":"AccessPoint","Name":"ostro-config","IPv4":"DHCP","Security":{"Mode":"WPA2-private","PreSharedKey":"ostro-config"},"SSIDAdvertisement":true}

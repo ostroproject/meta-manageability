@@ -1,0 +1,8 @@
+[template]
+src = "connman-main.tmpl"
+dest = "/etc/connman/main.conf"
+keys = [
+     "/common/device/wifi",
+     "/host/device/wifi"
+]
+format = "ini"

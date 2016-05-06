@@ -1,0 +1,10 @@
+[template]
+src = "connmanupd.tmpl"
+dest = "/tmp/connman.conf"
+keys = [
+     "/factory/device",
+     "/common/device",
+     "/local/device"
+]
+format = "json"
+reload_cmd = "/usr/libexec/connmanupd -input-file=/tmp/connman.conf"
