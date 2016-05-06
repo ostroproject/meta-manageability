@@ -1,0 +1,11 @@
+[template]
+src = "openssh-fw.tmpl"
+dest = "/etc/systemd/system/sshd.socket.d/openssh-ipv4.conf"
+keys = [
+     "/factory/devel/ssh",
+     "/common/devel/ssh",
+     "/local/devel/ssh"
+]
+format = "ini"
+check_cmd = "/bin/systemctl stop sshd.socket"
+reload_cmd = "/bin/systemctl daemon-reload; /bin/systemctl start sshd.socket"

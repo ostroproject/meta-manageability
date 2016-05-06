@@ -1,0 +1,10 @@
+[template]
+src = "openssh-socket.tmpl"
+dest = "/etc/systemd/system/sshd.socket"
+keys = [
+     "/factory/devel/ssh",
+     "/common/devel/ssh",
+     "/local/devel/ssh"
+]
+format = "ini"
+reload_cmd = "/bin/systemctl daemon-reload"

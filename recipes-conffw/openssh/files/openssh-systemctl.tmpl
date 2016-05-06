@@ -1,0 +1,17 @@
+{{$factory_conf := "/factory/devel/ssh"}}
+{{$common_conf := "/common/devel/ssh"}}
+{{$local_conf := "/local/devel/ssh"}}
+
+{{if or (exists $factory_conf) (exists $common_conf) (exists $local_conf)}}
+    {{$factory_defs := getv $factory_conf "{}"}}
+    {{$common_defs := getv $common_conf "{}"}}
+    {{$local_defs := getv $local_conf "{}"}}
+
+    {{$ssh := merge $factory_defs $common_defs $local_defs}}
+
+    {{if $ssh.Enable}}
+         /bin/systemctl enable sshd.socket && /bin/systemctl start sshd.socket
+    {{else}}
+         /bin/systemctl stop sshd.socket && /bin/systemctl disable sshd.socket
+    {{end}}
+{{end}}

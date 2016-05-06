@@ -1,0 +1,11 @@
+[template]
+src = "openssh-systemctl.tmpl"
+dest = "/tmp/openssh.sh"
+mode = "0755"
+keys = [
+     "/factory/devel/ssh",
+     "/common/devel/ssh",
+     "/local/devel/ssh"
+]
+format = "ini"
+reload_cmd = "/tmp/openssh.sh"
