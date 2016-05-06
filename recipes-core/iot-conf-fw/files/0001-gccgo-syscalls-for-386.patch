@@ -1,0 +1,57 @@
+From 366ce81e479e6ed9f1a0bbfe9dd3a70c021b1db1 Mon Sep 17 00:00:00 2001
+From: Amarnath Valluri <amarnath.valluri@intel.com>
+Date: Wed, 16 Mar 2016 14:13:01 +0200
+Subject: [PATCH] gccgo: syscalls for 386[Incomplete]
+
+Upstream-Status: Not-Submitted
+
+Signed-off-by: Amarnath Valluri <amarnath.valluri@intel.com>
+---
+ unix/gccgo_linux_386.go | 35 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+ create mode 100644 unix/gccgo_linux_386.go
+
+diff --git a/unix/gccgo_linux_386.go b/unix/gccgo_linux_386.go
+new file mode 100644
+index 0000000..9e787a7
+--- /dev/null
++++ b/unix/gccgo_linux_386.go
+@@ -0,0 +1,35 @@
++// Copyright 2015 The Go Authors.  All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// +build gccgo,linux,386
++
++package unix
++
++import "syscall"
++
++//extern lseek
++func realSeek(fd int, offset int32, whence int) int32
++
++func seek(fd int, offset int64, whence int) (newoffset int64, err syscall.Errno) {
++  //r, errno := realSyscall(uintptr(call), a1, a2, a3, 0, 0, 0, 0, 0, 0)
++  r := realSeek(fd, int32(offset), whence)
++  if r < 0 {
++    return int64(r), syscall.GetErrno()
++  }
++
++  return int64(r), 0
++}
++
++func socketcall(call int, a0, a1, a2, a3, a4, a5 uintptr) (n int, err syscall.Errno) {
++  //r, errno := realSyscall(uintptr(call), a1, a2, a3, 0, 0, 0, 0, 0, 0)
++  r, errno := 0, 0
++  return r, syscall.Errno(errno)
++}
++
++func rawsocketcall(call int, a0, a1, a2, a3, a4, a5 uintptr) (n int, err syscall.Errno) {
++  //r, errno := realSyscall(uintptr(call), a1, a2, a3, 0, 0, 0, 0, 0, 0)
++  r, errno := 0, 0
++  return r, syscall.Errno(errno)
++}
++
+-- 
+2.5.0
+
