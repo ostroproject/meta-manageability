@@ -1,0 +1,14 @@
+[Unit]
+Description=Neard based NFC Forwarder
+After=network.target
+RequiresMountsFor=/var/cache/confs
+
+[Service]
+ExecStart=/usr/bin/neardconfs -log-level=3
+Restart=on-failure
+ProtectSystem=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
+

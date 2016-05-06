@@ -1,6 +1,8 @@
 FILESEXTRAPATHS_prepend := "${THISDIR}/files:"
 SRC_URI += "file://connman-dhcp-ipv4.conf "
 
+EXTRA_OECONF += " --disable-neard"
+
 do_install_append() {
   #
   # temporary hack to get rid of some security caused issues in tethering
