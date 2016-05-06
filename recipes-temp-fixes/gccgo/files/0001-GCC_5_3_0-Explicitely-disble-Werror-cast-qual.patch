@@ -1,0 +1,37 @@
+From e92f89a18878043dc9761b27a5f51424c010e300 Mon Sep 17 00:00:00 2001
+From: Amarnath Valluri <amarnath.valluri@intel.com>
+Date: Sun, 13 Mar 2016 06:19:37 +0200
+Subject: [PATCH] GCC_5_3_0: Explicitely disble -Werror=cast-qual
+
+When cross compile go source for i386 system buil failed as below
+../../gcc/include/xmmintrin.h: In function '_mm_load_ps':
+../../gcc/include/xmmintrin.h:924:20: error: cast discards 'const' qualifier from pointer target type [-Werror=cast-qual]
+return (__m128) *(__v4sf *)__P;
+^
+../../gcc/include/xmmintrin.h: In function '_mm_loadr_ps':
+../../gcc/include/xmmintrin.h:938:19: error: cast discards 'const' qualifier from pointer target type [-Werror=cast-qual]
+__v4sf __tmp = *(__v4sf *)__P;
+
+Upstream-Status: Not-Submitted
+
+Signed-off-by: Amarnath Valluri <amarnath.valluri@intel.com>
+---
+ libgo/runtime/yield.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/libgo/runtime/yield.c b/libgo/runtime/yield.c
+index 442d346..f1fba06 100644
+--- a/libgo/runtime/yield.c
++++ b/libgo/runtime/yield.c
+@@ -15,6 +15,8 @@
+ #endif
+ 
+ #if defined (__i386__) || defined (__x86_64__)
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wcast-qual"
+ #include <xmmintrin.h>
+ #endif
+ 
+-- 
+1.9.4
+
