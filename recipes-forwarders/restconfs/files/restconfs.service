@@ -1,0 +1,13 @@
+[Unit]
+Description=Server for REST file backend + Fallback UI 
+After=network.target
+RequiresMountsFor=/var/cache/confs
+
+[Service]
+ExecStart=/usr/bin/restconfs -log-level=3 -http-port 443 -certificate-file /usr/share/confs/ca-files/restconfs.crt -key-file /usr/share/confs/ca-files/restconfs.key
+ProtectSystem=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
+

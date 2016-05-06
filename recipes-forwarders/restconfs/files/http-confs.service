@@ -1,0 +1,9 @@
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+    <name replace-wildcards="yes">%h confs</name>
+    <service>
+        <type>_http._tcp</type>
+        <port>8080</port>
+        <txt-record>path=/confs</txt-record>
+    </service>
+</service-group>
