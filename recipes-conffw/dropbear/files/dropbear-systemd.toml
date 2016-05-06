@@ -1,0 +1,8 @@
+[template]
+src = "dropbear-systemd.tmpl"
+dest = "/etc/systemd/system/dropbear.socket"
+keys = [
+     "/common/devel/ssh"
+]
+format = "ini"
+reload_cmd = "/bin/systemctl daemon-reload"
