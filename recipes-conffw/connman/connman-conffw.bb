@@ -52,7 +52,7 @@ do_install() {
   install ${WORKDIR}/*.js ${D}${datadir}/confs/ui/device
   install ${WORKDIR}/connman-tmpfiles.conf ${D}${libdir}/tmpfiles.d/connman-conffw.conf
   install ${WORKDIR}/wifi ${D}${datadir}/factory/confs/device/wifi
-  install ${WORKDIR}/wifi ${D}${datadir}/factory/confs/device/ethernet
+  install ${WORKDIR}/ethernet ${D}${datadir}/factory/confs/device/ethernet
 }
 
 FILES_${PN} = " \
