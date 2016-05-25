@@ -14,6 +14,8 @@ INSANE_SKIP_${PN} = "already-stripped"
 
 inherit systemd go-env
 
+SYSTEMD_SERVICE_${PN} = "neardconfs.service"
+
 do_compile () {
   if [ ! -d ${B}/bin ]; then
     mkdir ${B}/bin
@@ -26,7 +28,7 @@ do_compile () {
 do_install () {
   mkdir -p ${D}/${systemd_unitdir}/system/
   mkdir -p ${D}${bindir}
-  mkdir -p ${D}/usr/share/factory/etc/dbus-1/system.d
+  mkdir -p ${D}${datadir}/factory/etc/dbus-1/system.d
   mkdir -p ${D}/${libdir}/tmpfiles.d
 
   cp ${WORKDIR}/neardconfs.service   ${D}/${systemd_unitdir}/system/
