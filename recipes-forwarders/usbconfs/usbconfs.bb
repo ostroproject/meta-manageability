@@ -1,6 +1,6 @@
 require recipes-core/iot-conf-fw/iot-conf-fw-shared-source.inc
 
-SUMMARY = "Restconfs forwarder"
+SUMMARY = "Handles configuration fragments from USB"
 DESCRIPTION = "${SUMMARY}"
 HOMEPAGE = "https://github.com/ostroproject/iot-conf-fw"
 
@@ -14,7 +14,7 @@ SRC_URI = " \
 DEPENDS = "go-cross"
 INSANE_SKIP_${PN} = "already-stripped"
 
-inherit systemd go-env
+inherit go-env
 
 do_compile () {
   if [ ! -d ${B}/bin ]; then
@@ -27,19 +27,14 @@ do_compile () {
 
 do_install () {
   mkdir -p ${D}${bindir}
-  mkdir -p ${D}${systemd_unitdir}/systemd
   mkdir -p ${D}/${base_libdir}/udev/rules.d/
 
   cp ${B}/bin/tarconfs ${D}/${bindir}
-  cp ${WORKDIR}/confs-usbstorage@.path ${D}${systemd_unitdir}/systemd/
-  cp ${WORKDIR}/confs-usbstorage@.service ${D}${systemd_unitdir}/systemd
   cp ${WORKDIR}/97-automount.rules ${D}/${base_libdir}/udev/rules.d/
   cp ${WORKDIR}/98-confs-usbstorage.rules ${D}/${base_libdir}/udev/rules.d/
 }
 
 FILES_${PN} += " \
   ${bindir}/tarconfs \
-  ${systemd_unitdir}/systemd/confs-usbstorage@.path \
-  ${systemd_unitdir}/systemd/confs-usbstorage@.service \
   ${base_libdir}/udev/rules.d/ \
 "

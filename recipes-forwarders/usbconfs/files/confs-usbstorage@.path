@@ -1,7 +1,0 @@
-[Unit]
-Description=confs mount point monitoring
-#BindsTo=%i.mount
-
-[Path]
-PathExists=/%I
-Unit=confs-usbstorage@%i.service

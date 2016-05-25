@@ -1,9 +1,0 @@
-[Unit]
-Description=confs USB storage service
-After=%i.mount
-
-[Service]
-ExecStart=/usr/bin/tarconfs -log-level=3 -tar-dir=/%I
-
-[Install]
-WantedBy=multi-user.target
