@@ -7,8 +7,6 @@ HOMEPAGE = "https://github.com/ostroproject/iot-conf-fw"
 SRC_URI = " \
   file://97-automount.rules \
   file://98-confs-usbstorage.rules \
-  file://confs-usbstorage@.path \
-  file://confs-usbstorage@.service \
   "
 
 DEPENDS = "go-cross"
